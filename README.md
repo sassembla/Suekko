@@ -2,5 +2,7 @@
 
 ![loading](./doc/scr.png?raw=true)
 
-make your code to GUI without additional code.
+create Unity WindowGUI from plane code, without additional coding.
 
+## installation
+wip.
