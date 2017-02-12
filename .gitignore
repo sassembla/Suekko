@@ -1,0 +1,16 @@
+
+.vscode/launch.json
+
+Assembly-CSharp-Editor.csproj
+
+Assets/VSCode.meta
+
+Assets/VSCode/*
+
+Library/*
+
+ProjectSettings/*
+
+Temp/*
+
+Suekko.sln
