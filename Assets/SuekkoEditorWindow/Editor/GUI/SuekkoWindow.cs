@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using UnityEditor;
@@ -9,51 +11,95 @@ namespace Suekko {
 		/*
 			target type instance.
 		*/
-		static ExecuteTarget target = new ExecuteTarget();
-
-
+		static ExecuteTarget target = new ExecuteTarget();// 
+	
 		[MenuItem("Window/Suekko/Open")] public static void OpenSuekkoWindow () {
 			var window = GetWindow<SuekkoWindow>();
-			window.titleContent = new GUIContent("TypedWindow");
+			window.titleContent = new GUIContent(target.GetType().ToString());
 			window.Setup(target);
 			Debug.LogError("target.overwrite:" + target.overwrite);
 		}
 
-		private ExecuteTarget instance;
+		/*
+			reload if focused.
+		*/
+        public void OnFocus() {
+			if (fieldActions == null) {
+				Setup(target);
+			}
+        }
+
+		private Dictionary<NameAndType, Action<object>> fieldActions;
+		private object[] param;
+
+		private Dictionary<string, MethodInfo> methodActions;
 
 		private void Setup<T> (T target) {
-			/*
-				パブリックプロパティとかメソッドとかを適当に漁って、それらを適当なボタンにする。
-			*/
-			var fields = target.GetType().GetFields();// プロパティを漁って、セットできるか。
-			foreach (var field in fields) {
-				
-				var fieldHolder = target.GetType().GetField(field.Name, BindingFlags.Public | BindingFlags.Instance);
-				Debug.LogError("field:" + fieldHolder.Name);
-				object val = true;
+			var fields = target.GetType().GetFields(BindingFlags.Public | BindingFlags.Instance);
 
-				if (fieldHolder != null) {
-					switch (field.FieldType.ToString()) {
+			fieldActions = new Dictionary<NameAndType, Action<object>>();
+			var fieldParams = new List<object>();
+
+			/*
+				collect fields.
+			*/
+			foreach (var field in fields) {
+				var fieldName = field.Name;
+				var fieldType = field.FieldType;
+				
+				{
+					var f = field;
+					Action<object> act = null;
+					switch (fieldType.ToString()) {
 						case "System.Boolean": {
-							fieldHolder.SetValue(target, (bool)val);
+							act = obj => {
+								f.SetValue(target, (bool)obj);
+							};
 							break;
 						}
 						case "System.String": {
-							// fieldHolder.SetValue(target, (string)val);
+							act = obj => {
+								f.SetValue(target, (string)obj);
+							};
 							break;
 						}
 						default: {
-							Debug.LogError("property.FieldType.ToString():" + field.FieldType.ToString());
+							Debug.LogError("FieldType.ToString():" + field.FieldType.ToString());
 							break;
 						}
 					}
-					
+					fieldActions[new NameAndType(fieldName, fieldType)] = act;
+					fieldParams.Add(field.GetValue(target));		
 				}
+
+				// set default params.
+				param = fieldParams.Select(v => (object)v).ToArray();
+			}
+
+			/*
+				collect methods.
+			*/
+			methodActions = new Dictionary<string, MethodInfo>();
+
+			var methods = target.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+			foreach (var method in methods) {
+				var len = method.GetParameters().Length;
+				if (0 < len) {
+					continue;
+				}
+
+				var methodName = method.Name;
+				methodActions[methodName] = method;
 			}
 		}
 
-		public T GetTypedInstance<T> () where T : new() {
-			return new T();
+		private class NameAndType {
+			public readonly string name;
+			public readonly Type type;
+			public NameAndType (string name, Type type) {
+				this.name = name;
+				this.type = type;
+			}
 		}
 
 		/*
@@ -62,29 +108,48 @@ namespace Suekko {
 			で、これはロガーと、コンソールビューと、ボタンでできそう。
 		*/
 
-		private string myString = "test";
-		private bool groupEnabled;
-		private bool myBool;
-		private float myFloat;
+		
 		void OnGUI () {
-			/*
-				型を与えて、その型がもつパラメータを適当にボタンとかにする。
-				んでインスタンス作って、適当なメソッドの数だけボタンを出す。
+			GUILayout.Label("Params", EditorStyles.boldLabel);
 
-				というかんじでひとつ。
-				ログだけどうしようかな。Debug.Logをかっさらうか。
-			*/
-			GUILayout.Label ("Base Settings", EditorStyles.boldLabel);
-			myString = EditorGUILayout.TextField ("Text Field", myString);
+			for (var i = 0; i < fieldActions.Count; i++) {
+				var key = fieldActions.Keys.ToArray()[i];
+				var fieldAction = fieldActions[key];
 
-			if (GUILayout.Button("execute")) {
-				Log("fmm");
+				switch (key.type.ToString()) {
+					case "System.Boolean": {
+						param[i] = EditorGUILayout.Toggle(key.name, (bool)param[i]);
+						fieldAction(param[i]);
+						break;
+					}
+					case "System.String": {
+						var before = (string)param[i];
+						param[i] = EditorGUILayout.TextField(key.name, before);
+						if (before != (string)param[i]) {
+							fieldAction(param[i]);
+						}
+						break;
+					}
+					default: {
+						break;
+					}
+				}
 			}
 
-			groupEnabled = EditorGUILayout.BeginToggleGroup ("Optional Settings", groupEnabled);
-			myBool = EditorGUILayout.Toggle ("Toggle", myBool);
-			myFloat = EditorGUILayout.Slider ("Slider", myFloat, -3, 3);
-			EditorGUILayout.EndToggleGroup ();
+
+			/*
+				order method as button.
+			*/
+			foreach (var methodAction in methodActions) {
+				if (GUILayout.Button(methodAction.Key)) {
+					var methodInfo = methodAction.Value;
+					methodInfo.Invoke(target, null);
+				}
+			}
+			
+			/*
+				コンソールの表示(したいな〜〜)
+			*/
 		}
 
 		/*
@@ -97,15 +162,4 @@ namespace Suekko {
 
 		private StringBuilder b = new StringBuilder();
 	}
-}
-
-public class ExecuteTarget {
-	public string version;
-	public bool overwrite;
-
-	public void Execute () {
-		Debug.Log("log!");
-	}
-
-
 }
